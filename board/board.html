@@ -1,0 +1,842 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>任务卡看板</title>
+<style>
+:root {
+  color-scheme: dark;
+  --surface: #1a1a19; --panel: #222220; --line: #2c2c2a;
+  --text: #f0efec; --text2: #c3c2b7; --muted: #8f8e85;
+  --done: #199e70; --active: #3987e5; --partial: #d95926;
+  --wait: #33332f; --ready: #c3c2b7;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+    --surface: #fcfcfb; --panel: #f2f1ec; --line: #e1e0d9;
+    --text: #0b0b0b; --text2: #52514e; --muted: #77766f;
+    --done: #1baf7a; --active: #2a78d6; --partial: #eb6834;
+    --wait: #dddcd5; --ready: #52514e;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--surface); color: var(--text);
+  font: 14px/1.45 -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", sans-serif; }
+main { max-width: 1400px; margin: 0 auto; padding: 20px 24px 48px; }
+header { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; }
+h1 { font-size: 20px; margin: 0; font-weight: 600; }
+.live { display: inline-flex; align-items: center; gap: 6px; color: var(--text2); font-size: 12px; }
+.live i { width: 8px; height: 8px; border-radius: 50%; background: var(--done); animation: beat 2s infinite; }
+.live.off i { background: var(--partial); animation: none; }
+@keyframes beat { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: .35; transform: scale(.7); } }
+
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin: 16px 0; }
+.stat { background: var(--panel); border-radius: 10px; padding: 12px 14px; }
+.stat .k { color: var(--text2); font-size: 12px; }
+.stat .v { font-size: 28px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -.5px; }
+.stat .s { color: var(--muted); font-size: 12px; }
+.stat.eta .v { font-size: 22px; }
+
+.banner { display: flex; gap: 8px; align-items: flex-start; background: color-mix(in oklab, var(--partial) 14%, var(--panel));
+  border-left: 3px solid var(--partial); border-radius: 6px; padding: 8px 12px; margin-bottom: 12px; color: var(--text); }
+.legend { display: flex; gap: 16px; flex-wrap: wrap; color: var(--text2); font-size: 12px; margin: 8px 0 14px; }
+.legend span { display: inline-flex; gap: 6px; align-items: center; }
+.sw { width: 14px; height: 14px; border-radius: 4px; display: inline-grid; place-items: center; font-size: 10px; color: #fff; }
+
+.group { display: grid; grid-template-columns: 210px 1fr; gap: 14px; padding: 12px 0; border-top: 1px solid var(--line); }
+.ghead { display: flex; gap: 10px; align-items: flex-start; }
+.ring { flex: none; }
+.ring circle { fill: none; stroke-width: 5; }
+.ring .bg { stroke: var(--wait); }
+.ring .fg { stroke: var(--done); stroke-linecap: round; transition: stroke-dashoffset 1.2s cubic-bezier(.2,.8,.2,1); }
+.ring text { fill: var(--text); font-size: 11px; font-weight: 600; text-anchor: middle; dominant-baseline: central; }
+.gname { font-weight: 600; }
+.gsum { color: var(--muted); font-size: 12px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.geta { color: var(--text2); font-size: 12px; margin-top: 2px; }
+.tiles { display: flex; flex-wrap: wrap; gap: 6px; align-content: flex-start; }
+.tile { height: 30px; border-radius: 6px; padding: 0 8px; display: inline-flex; align-items: center; gap: 5px;
+  font-size: 12px; cursor: pointer; white-space: nowrap; transition: background .6s, color .6s, opacity .3s, transform .3s, outline-color .3s;
+  outline: 2px solid transparent; outline-offset: 1px; animation: enter .5s backwards; }
+.tile.p1 { min-width: 64px; } .tile.p2 { min-width: 92px; } .tile.p4 { min-width: 132px; }
+.tile .ic { width: 12px; text-align: center; }
+.s-done { background: var(--done); color: #fff; }
+.s-partial { background: var(--partial); color: #fff; }
+.s-active { background: var(--active); color: #fff; animation: enter .5s backwards, glow 1.8s ease-in-out infinite; }
+.s-ready { background: transparent; color: var(--text); box-shadow: inset 0 0 0 1.5px var(--ready); }
+.s-waiting { background: var(--wait); color: var(--text2); }
+.s-paused { color: var(--text2); background: repeating-linear-gradient(135deg, var(--wait) 0 6px, transparent 6px 10px);
+  box-shadow: inset 0 0 0 1px var(--wait); }
+@keyframes glow { 0%,100% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--active) 70%, transparent); }
+  50% { box-shadow: 0 0 0 6px color-mix(in oklab, var(--active) 0%, transparent); } }
+@keyframes enter { from { opacity: 0; transform: translateY(6px) scale(.9); } }
+.tile.bump { animation: bump 1.4s ease-out; }
+@keyframes bump { 0% { transform: scale(1); outline-color: var(--text); } 20% { transform: scale(1.3); } 100% { transform: scale(1); outline-color: transparent; } }
+body.sel .tile { opacity: .25; }
+body.sel .tile.me, body.sel .tile.dep, body.sel .tile.rdep { opacity: 1; }
+.tile.me { outline-color: var(--text); }
+.tile.dep { outline-color: var(--text2); outline-style: dashed; }
+.tile.rdep { outline-color: var(--muted); outline-style: dotted; }
+
+h2 { font-size: 15px; margin: 28px 0 8px; font-weight: 600; }
+.cols { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; }
+@media (max-width: 900px) { .cols { grid-template-columns: 1fr; } .group { grid-template-columns: 1fr; } }
+.chart { background: var(--panel); border-radius: 10px; padding: 12px; position: relative; }
+.chart svg { width: 100%; height: 240px; display: block; }
+.axis text { fill: var(--muted); font-size: 11px; }
+.grid line { stroke: var(--line); stroke-width: 1; }
+.hist { fill: none; stroke: var(--done); stroke-width: 2; }
+.histarea { fill: color-mix(in oklab, var(--done) 18%, transparent); }
+.proj { fill: none; stroke: var(--text2); stroke-width: 2; stroke-dasharray: 5 4; }
+.band { fill: color-mix(in oklab, var(--text2) 12%, transparent); }
+.scope { stroke: var(--muted); stroke-dasharray: 2 4; stroke-width: 1; }
+.lbl { fill: var(--text2); font-size: 11px; }
+.cross { stroke: var(--muted); stroke-width: 1; }
+.note { color: var(--muted); font-size: 12px; margin-top: 8px; }
+.feed { list-style: none; margin: 0; padding: 0; }
+.feed li { padding: 6px 0; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: 64px 1fr; gap: 8px;
+  animation: slide .6s backwards; }
+.feed time { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.feed .msg { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@keyframes slide { from { opacity: 0; transform: translateX(-12px); } }
+#tip { position: fixed; pointer-events: none; z-index: 40; max-width: 420px; background: var(--panel); color: var(--text);
+  border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 12px; box-shadow: 0 6px 24px rgba(0,0,0,.35);
+  opacity: 0; transition: opacity .12s; }
+#tip b { font-size: 13px; }
+#tip .st { color: var(--text2); margin-top: 4px; }
+#toasts { position: fixed; right: 18px; bottom: 48px; display: flex; flex-direction: column; gap: 8px; z-index: 40; }
+.toast { background: var(--panel); border-left: 3px solid var(--active); padding: 8px 12px; border-radius: 6px;
+  box-shadow: 0 6px 24px rgba(0,0,0,.35); animation: pop .4s; font-size: 13px; }
+@keyframes pop { from { opacity: 0; transform: translateY(10px); } }
+details { margin-top: 24px; color: var(--text2); }
+table { border-collapse: collapse; width: 100%; font-size: 12px; margin-top: 8px; }
+th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--line); }
+
+.views { position: fixed; top: 14px; right: 18px; z-index: 30; display: inline-flex; background: rgba(20,22,30,.7);
+  border: 1px solid rgba(255,255,255,.12); border-radius: 999px; padding: 3px; backdrop-filter: blur(8px); }
+.views button { border: 0; background: transparent; color: #c3c2b7; font: inherit; font-size: 13px; padding: 5px 14px;
+  border-radius: 999px; cursor: pointer; transition: background .3s, color .3s; }
+.views button.on { background: #3987e5; color: #fff; }
+#galaxy { position: fixed; inset: 0; z-index: 20; background: #07080d; color: #f0efec; }
+#galaxy[hidden] { display: none; }
+#gcanvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.hud { position: absolute; left: 28px; top: 20px; pointer-events: none; text-shadow: 0 2px 12px rgba(0,0,0,.8); }
+.hud .t { font-size: 13px; letter-spacing: 3px; color: #8f8e85; text-transform: uppercase; }
+.hud .big { font-size: 64px; font-weight: 700; line-height: 1; letter-spacing: -2px; font-variant-numeric: tabular-nums; }
+.hud .big small { font-size: 28px; color: #8f8e85; font-weight: 500; letter-spacing: 0; }
+.hud .bar { width: 340px; height: 6px; border-radius: 3px; background: rgba(255,255,255,.08); margin: 10px 0 8px; overflow: hidden; }
+.hud .bar i { display: block; height: 100%; width: 0; border-radius: 3px; transition: width 1.6s cubic-bezier(.2,.8,.2,1);
+  background: linear-gradient(90deg, #199e70, #3987e5); box-shadow: 0 0 12px #3987e5; }
+.hud .line { font-size: 13px; color: #c3c2b7; margin-top: 3px; }
+.hud .line b { color: #f0efec; font-weight: 600; }
+.hud .eta { font-size: 18px; margin-top: 8px; }
+.hud .eta b { color: #6fb0ff; }
+.glegend { position: absolute; left: 28px; bottom: 18px; display: flex; gap: 18px; font-size: 12px; color: #8f8e85; pointer-events: none; }
+.glegend span { display: inline-flex; gap: 6px; align-items: center; }
+.glegend i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.now { position: absolute; right: 22px; top: 58px; width: 360px; padding: 14px 16px; border-radius: 14px;
+  background: rgba(14,16,24,.62); border: 1px solid rgba(255,255,255,.09); backdrop-filter: blur(10px); color: #f0efec; }
+.now .hd { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #8f8e85; letter-spacing: 1px; }
+.now .dot { width: 8px; height: 8px; border-radius: 50%; background: #4a4a45; }
+.now .dot.on { background: #3987e5; box-shadow: 0 0 10px #3987e5; animation: beat 1.4s ease-in-out infinite; }
+.now .card { margin-top: 10px; }
+.now .id { font-size: 14px; font-weight: 600; } .now .id span { color: #8f8e85; font-weight: 400; margin-left: 6px; }
+.now .clock { font-size: 40px; font-weight: 700; letter-spacing: -1px; font-variant-numeric: tabular-nums; line-height: 1.1; margin-top: 2px;
+  background: linear-gradient(90deg, #f0efec, #6fb0ff); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.now .clock small { font-size: 13px; font-weight: 500; letter-spacing: 0; -webkit-text-fill-color: #8f8e85; margin-left: 6px; }
+.now .sub { font-size: 12px; color: #c3c2b7; margin-top: 2px; }
+.now .meter { height: 5px; border-radius: 3px; background: rgba(255,255,255,.08); margin: 8px 0 4px; overflow: hidden; }
+.now .meter i { display: block; height: 100%; border-radius: 3px; background: linear-gradient(90deg, #3987e5, #6fb0ff);
+  box-shadow: 0 0 10px #3987e5; transition: width 1s linear; }
+.now .meter i.over { background: linear-gradient(90deg, #d95926, #f08a5d); box-shadow: 0 0 10px #d95926; }
+.now .left { border-top: 1px solid rgba(255,255,255,.08); margin-top: 12px; padding-top: 10px; font-size: 12px; color: #c3c2b7; }
+.now .left .row { display: flex; justify-content: space-between; margin-top: 4px; }
+.now .left b { color: #f0efec; font-size: 15px; font-variant-numeric: tabular-nums; }
+.now .left .k { color: #8f8e85; }
+.hud .pct { font-size: 13px; color: #c3c2b7; } .hud .pct b { color: #f0efec; font-size: 15px; }
+.agentbox { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin: 0 0 16px; }
+.agentbox .stat .clock { font-size: 28px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.agentbox .meter { height: 5px; border-radius: 3px; background: var(--line); margin: 6px 0 2px; overflow: hidden; }
+.agentbox .meter i { display: block; height: 100%; background: var(--active); transition: width 1s linear; }
+.agentbox .meter i.over { background: var(--partial); }
+.ghint { position: absolute; right: 22px; bottom: 18px; font-size: 12px; color: #6d6c64; pointer-events: none; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<nav class="views" id="views"><button data-v="galaxy">星图</button><button data-v="info">信息</button></nav>
+<section id="galaxy" hidden>
+  <canvas id="gcanvas"></canvas>
+  <div class="hud">
+    <div class="t" id="g-title">任务卡星图</div>
+    <div class="big"><span id="g-done">0</span><small> / <span id="g-total">0</span> 张卡完成</small></div>
+    <div class="bar"><i id="g-bar"></i></div>
+    <div class="pct" id="g-pct"></div>
+    <div class="line" id="g-active"></div>
+    <div class="line" id="g-pause"></div>
+    <div class="eta" id="g-eta"></div>
+    <div class="line" id="g-eta2"></div>
+  </div>
+  <div class="glegend">
+    <span><i style="background:#199e70;box-shadow:0 0 8px #199e70"></i>完成</span>
+    <span><i style="background:#d95926;box-shadow:0 0 8px #d95926"></i>部分完成</span>
+    <span><i style="background:#3987e5;box-shadow:0 0 10px #3987e5"></i>进行中</span>
+    <span><i style="border:1.5px solid #c3c2b7"></i>可开工</span>
+    <span><i style="background:#4a4a45"></i>等依赖</span>
+    <span><i style="border:1.5px dashed #6d6c64"></i>暂停</span>
+  </div>
+  <div class="now" id="g-now"></div>
+  <div class="ghint">悬停看卡片 · 曲线是依赖 · 光点流向进行中的卡</div>
+</section>
+<main>
+  <header>
+    <h1 id="title">任务卡看板</h1>
+    <span class="live" id="live"><i></i><span id="livetext">连接中</span></span>
+  </header>
+  <section class="stats" id="stats"></section>
+  <section class="agentbox" id="agentbox"></section>
+  <div id="banner"></div>
+  <div class="legend" id="legend"></div>
+  <section id="groups"></section>
+  <div class="cols">
+    <div>
+      <h2>进度与预计完成（工作量点数：小 1、中 2、大 4）</h2>
+      <div class="chart"><svg id="burn" role="img" aria-label="累计完成点数与预计完成"></svg><div class="note" id="method"></div></div>
+    </div>
+    <div>
+      <h2>最近提交</h2>
+      <ul class="feed" id="feed"></ul>
+    </div>
+  </div>
+  <details><summary>表格视图</summary><table id="table"></table></details>
+</main>
+<div id="tip"></div>
+<div id="toasts"></div>
+<script>
+const STATES = {
+  done:    { label: "完成",     icon: "✓" },
+  partial: { label: "部分完成", icon: "◐" },
+  active:  { label: "进行中",   icon: "▶" },
+  ready:   { label: "可开工",   icon: "○" },
+  waiting: { label: "等依赖",   icon: "·" },
+  paused:  { label: "暂停",     icon: "⏸" },
+};
+let prev = null, selected = null, data = null;
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const fmtDate = t => { const d = new Date(t * 1000); return `${d.getMonth() + 1}月${d.getDate()}日 ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
+const fmtDay = t => { const d = new Date(t * 1000); return `${d.getMonth() + 1}/${d.getDate()}`; };
+const ago = t => { const s = Date.now() / 1000 - t; return s < 3600 ? `${Math.max(1, Math.round(s / 60))} 分钟前` : s < 86400 ? `${Math.round(s / 3600)} 小时前` : `${Math.round(s / 86400)} 天前`; };
+const short = c => c.id.replace(/^[A-Z][A-Za-z0-9]*-/, "") || c.id;
+
+const fmtDur = h => {
+  if (h == null) return "—";
+  const m = Math.round(h * 60);
+  if (m < 60) return `${m} 分钟`;
+  if (h < 48) return `${Math.floor(m / 60)} 小时 ${String(m % 60).padStart(2, "0")} 分`;
+  return `${Math.round(h)} 小时`;
+};
+const clock = h => { const s = Math.max(0, Math.floor(h * 3600)); return `${Math.floor(s / 3600)}:${String(Math.floor(s / 60) % 60).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`; };
+
+// Agent hours as of this second: the server value plus the time since it was computed while an agent runs.
+function liveHours(d, h) {
+  const a = d.agent;
+  return a && a.running ? h + Math.max(0, Date.now() / 1000 - d.now) / 3600 : h;
+}
+
+function nowCards(d, cls) {
+  const a = d.agent;
+  return a.current.map(c => {
+    const spent = liveHours(d, c.agent_hours), p50 = c.expect_p50, p90 = c.expect_p90;
+    const over = p50 != null && spent > p50;
+    const pct = p50 ? Math.min(100, spent / (over ? p90 || p50 : p50) * 100) : 0;
+    const left = p50 == null ? "" : !over ? `预计还要 ${fmtDur(p50 - spent)}（保守 ${fmtDur(Math.max(0, p90 - spent))}）`
+      : spent < p90 ? `已超出中位预计 ${fmtDur(p50)}，保守 ${fmtDur(p90)} 内` : `已超出保守预计 ${fmtDur(p90)}`;
+    return cls === "g" ? `<div class="card"><div class="id">${esc(c.id)}<span>${esc(c.title)}</span></div>
+        <div class="clock" data-clock="${esc(c.id)}">${clock(spent)}<small>agent 执行</small></div>
+        <div class="sub">墙钟 ${fmtDur(c.wall_hours)} · 起于 ${fmtDate(c.since)}（前置卡完成）</div>
+        <div class="meter"><i class="${over ? "over" : ""}" style="width:${pct}%"></i></div><div class="sub">${left}</div></div>`
+      : `<div class="stat"><div class="k">当前任务 ${esc(c.id)} · ${esc(c.title)}</div>
+        <div class="clock" data-clock="${esc(c.id)}">${clock(spent)}</div>
+        <div class="meter"><i class="${over ? "over" : ""}" style="width:${pct}%"></i></div>
+        <div class="s">agent 执行时间 · 墙钟 ${fmtDur(c.wall_hours)} · ${left}</div></div>`;
+  }).join("");
+}
+
+function agentLeft(d) {
+  const a = d.agent, ms = a.milestones || [], af = d.cards.find(c => c.state === "active")?.file;
+  const est = d.estimate.milestones || [];
+  const curIdx = Math.max(0, ms.findIndex((m, i) => m.file === af && est[i]?.remaining));
+  const cur = ms[curIdx], end = ms[ms.length - 1];
+  return { cur, end, first: ms[0] };
+}
+
+function agentPanels(d) {
+  const a = d.agent;
+  if (!a) { $("g-now").innerHTML = ""; $("agentbox").innerHTML = ""; return; }
+  const idle = a.last_seen ? Date.now() / 1000 - a.last_seen : null;
+  const status = a.running ? "agent 执行中" : idle != null ? `agent 空闲 ${fmtDur(idle / 3600)}` : "没有 agent 记录";
+  const { cur, end, first } = agentLeft(d);
+  const leftRows = `${cur ? `<div class="row"><span class="k">${esc(cur.file.replace(".md", ""))} 剩余</span><span><b>${fmtDur(cur.p50)}</b> · 保守 ${fmtDur(cur.p90)}</span></div>` : ""}
+    ${end ? `<div class="row"><span class="k">主线 ${esc(first.file.replace(".md", ""))}–${esc(end.file.replace(".md", ""))} 剩余</span><span><b>${fmtDur(end.p50)}</b> · 保守 ${fmtDur(end.p90)}</span></div>` : ""}
+    <div class="row"><span class="k">已累计执行</span><span>${fmtDur(liveHours(d, a.total_hours))} · 每点平均 ${fmtDur(a.hours_per_point)}</span></div>`;
+  $("g-now").innerHTML = `<div class="hd"><i class="dot ${a.running ? "on" : ""}"></i>${status}</div>
+    ${a.current.length ? nowCards(d, "g") : `<div class="sub" style="margin-top:8px">没有进行中的卡</div>`}
+    <div class="left"><div class="k">剩余 agent 执行时间（中位 · 保守）</div>${leftRows}</div>`;
+  $("agentbox").innerHTML = nowCards(d, "i") + `<div class="stat"><div class="k">${status} · 剩余 agent 执行时间</div>
+    <div class="v">${end ? fmtDur(end.p50) : "—"}</div>
+    <div class="s">主线全部，保守 ${end ? fmtDur(end.p90) : "—"}${cur ? `；${esc(cur.file.replace(".md", ""))} 还要 ${fmtDur(cur.p50)}（保守 ${fmtDur(cur.p90)}）` : ""}。
+    只算 agent 在跑的时间：会话记录里相邻两条间隔不超过 10 分钟的算执行，多个 agent 同时跑只算一次；不含等你决定和夜间停顿。</div></div>`;
+}
+
+setInterval(() => {
+  if (!data?.agent?.running) return;
+  for (const c of data.agent.current) {
+    const t = clock(liveHours(data, c.agent_hours));
+    document.querySelectorAll(`[data-clock="${CSS.escape(c.id)}"]`).forEach(el => {
+      const small = el.querySelector("small");
+      el.firstChild.nodeValue = t;
+      if (small && el.lastChild !== small) el.appendChild(small);
+    });
+  }
+}, 1000);
+
+function legend() {
+  $("legend").innerHTML = Object.entries(STATES).map(([k, v]) =>
+    `<span><i class="sw s-${k}" style="animation:none">${v.icon}</i>${v.label}</span>`).join("") +
+    `<span>点卡片：虚线框 = 它依赖的卡，点线框 = 依赖它的卡</span>`;
+}
+
+function animateNumber(el, to) {
+  const from = Number(el.dataset.v ?? 0);
+  el.dataset.v = to;
+  if (from === to || matchMedia("(prefers-reduced-motion: reduce)").matches) { el.textContent = to; return; }
+  const t0 = performance.now();
+  const step = now => { const k = Math.min(1, (now - t0) / 700); el.textContent = Math.round(from + (to - from) * (1 - Math.pow(1 - k, 3))); if (k < 1) requestAnimationFrame(step); };
+  requestAnimationFrame(step);
+}
+
+function stats(d) {
+  const n = s => d.cards.filter(c => c.state === s).length;
+  const done = n("done") + n("partial"), active = n("active"), total = d.cards.length;
+  const ms = d.estimate.milestones || [];
+  const activeFile = d.cards.find(c => c.state === "active" && ms.some(m => m.file === c.file))?.file;
+  const cur = ms.find(m => m.file === activeFile && m.remaining > 0) || ms.find(m => m.remaining > 0);
+  const last = ms[ms.length - 1];
+  if (!$("stats").children.length) {
+    $("stats").innerHTML = `
+      <div class="stat"><div class="k">任务卡总数</div><div class="v" id="v-total"></div><div class="s" id="s-total"></div></div>
+      <div class="stat"><div class="k">已完成</div><div class="v" id="v-done"></div><div class="s" id="s-done"></div></div>
+      <div class="stat"><div class="k">进行中</div><div class="v" id="v-active"></div><div class="s" id="s-active"></div></div>
+      <div class="stat"><div class="k">剩余</div><div class="v" id="v-left"></div><div class="s" id="s-left"></div></div>
+      <div class="stat eta"><div class="k" id="k-cur">当前里程碑预计完成</div><div class="v" id="v-cur"></div><div class="s" id="s-cur"></div></div>
+      <div class="stat eta"><div class="k">主线全部预计完成</div><div class="v" id="v-all"></div><div class="s" id="s-all"></div></div>`;
+  }
+  animateNumber($("v-total"), total);
+  $("s-total").textContent = d.packages.map(p => `另有 ${p.file.replace(".md", "")} 增强包 ${p.count} 个，到期细化`).join("") || " ";
+  animateNumber($("v-done"), done);
+  const pg = d.progress;
+  $("s-done").textContent = `${Math.round(done / total * 100)}%，含部分完成 ${n("partial")} 张；主线按点数 ${Math.round(pg.main_done_points / pg.main_points * 100)}%（${pg.main_done_points}/${pg.main_points}）`;
+  animateNumber($("v-active"), active);
+  $("s-active").textContent = d.cards.filter(c => c.state === "active").map(c => c.id).join("、") || "无";
+  animateNumber($("v-left"), total - done);
+  $("s-left").textContent = `可开工 ${n("ready")} · 暂停 ${n("paused")} · 等依赖 ${n("waiting")}`;
+  if (cur) {
+    $("k-cur").textContent = `${cur.file.replace(".md", "")} 预计完成（还剩 ${cur.remaining} 张）`;
+    $("v-cur").textContent = fmtDate(cur.p50);
+    $("s-cur").textContent = `保守估计 ${fmtDate(cur.p90)}`;
+  }
+  if (last) {
+    $("v-all").textContent = fmtDate(last.p50);
+    $("s-all").textContent = `保守估计 ${fmtDate(last.p90)}（${ms[0].file.replace(".md", "")}–${last.file.replace(".md", "")}）`;
+  }
+}
+
+function ring(done, total) {
+  const r = 18, c = 2 * Math.PI * r, off = c * (1 - (total ? done / total : 0));
+  return `<svg class="ring" width="46" height="46" viewBox="0 0 46 46" aria-label="${done}/${total}">
+    <circle class="bg" cx="23" cy="23" r="${r}"/><circle class="fg" cx="23" cy="23" r="${r}" transform="rotate(-90 23 23)"
+      stroke-dasharray="${c}" stroke-dashoffset="${off}" data-c="${c}"/><text x="23" y="23">${Math.round(total ? done / total * 100 : 0)}%</text></svg>`;
+}
+
+function groups(d) {
+  const byId = Object.fromEntries(d.cards.map(c => [c.id, c]));
+  const etaBy = Object.fromEntries((d.estimate.milestones || []).map(m => [m.file, m]));
+  const host = $("groups");
+  d.groups.forEach((g, gi) => {
+    let row = host.querySelector(`[data-g="${g.file}"]`);
+    const cards = g.cards.map(id => byId[id]);
+    const done = cards.filter(c => c.state === "done" || c.state === "partial").length;
+    const eta = etaBy[g.file];
+    const head = `${ring(done, cards.length)}<div><div class="gname">${esc(g.label)} · ${done}/${cards.length}</div>
+      <div class="geta">${eta ? (eta.remaining ? `预计 ${fmtDate(eta.p50)}` : "已完成") : "不计入主线估算"}</div>
+      <div class="gsum">${esc(g.summary)}</div></div>`;
+    if (!row) {
+      row = document.createElement("div");
+      row.className = "group"; row.dataset.g = g.file;
+      row.innerHTML = `<div class="ghead"></div><div class="tiles"></div>`;
+      host.appendChild(row);
+    }
+    const gh = row.querySelector(".ghead");
+    const oldFg = gh.querySelector(".fg");
+    gh.innerHTML = head;
+    if (oldFg) {
+      const fg = gh.querySelector(".fg"), target = fg.getAttribute("stroke-dashoffset");
+      fg.setAttribute("stroke-dashoffset", oldFg.getAttribute("stroke-dashoffset"));
+      requestAnimationFrame(() => requestAnimationFrame(() => fg.setAttribute("stroke-dashoffset", target)));
+    } else {
+      const fg = gh.querySelector(".fg"), target = fg.getAttribute("stroke-dashoffset");
+      fg.setAttribute("stroke-dashoffset", fg.dataset.c);
+      setTimeout(() => fg.setAttribute("stroke-dashoffset", target), 80 + gi * 60);
+    }
+    const tiles = row.querySelector(".tiles");
+    cards.forEach((c, i) => {
+      let t = tiles.querySelector(`[data-id="${CSS.escape(c.id)}"]`);
+      if (!t) {
+        t = document.createElement("div");
+        t.dataset.id = c.id;
+        t.style.animationDelay = `${gi * 40 + i * 12}ms`;
+        t.addEventListener("mouseenter", e => tip(e, c.id));
+        t.addEventListener("mousemove", moveTip);
+        t.addEventListener("mouseleave", () => $("tip").style.opacity = 0);
+        t.addEventListener("click", ev => { ev.stopPropagation(); select(selected === c.id ? null : c.id); });
+        tiles.appendChild(t);
+      }
+      t.className = `tile p${c.points} s-${c.state}`;
+      t.innerHTML = `<span class="ic">${STATES[c.state].icon}</span>${esc(short(c))}`;
+      t.setAttribute("aria-label", `${c.id} ${c.title} ${STATES[c.state].label}`);
+    });
+  });
+  select(selected);
+}
+
+function changes(d) {
+  if (!prev) return;
+  const old = Object.fromEntries(prev.cards.map(c => [c.id, c.state]));
+  d.cards.forEach(c => {
+    if (old[c.id] && old[c.id] !== c.state) {
+      const t = document.querySelector(`.tile[data-id="${CSS.escape(c.id)}"]`);
+      if (t) { t.classList.remove("bump"); void t.offsetWidth; t.classList.add("bump"); }
+      toast(`${c.id}：${STATES[old[c.id]].label} → ${STATES[c.state].label}`);
+      Galaxy.burst(c.id, c.state);
+    } else if (!old[c.id]) toast(`新卡 ${c.id}`);
+  });
+}
+
+function toast(msg) {
+  const el = document.createElement("div");
+  el.className = "toast"; el.textContent = msg;
+  $("toasts").appendChild(el);
+  setTimeout(() => el.remove(), 8000);
+}
+
+function select(id) {
+  selected = id;
+  document.body.classList.toggle("sel", !!id);
+  document.querySelectorAll(".tile").forEach(t => t.classList.remove("me", "dep", "rdep"));
+  if (!id || !data) return;
+  const c = data.cards.find(x => x.id === id);
+  if (!c) { selected = null; document.body.classList.remove("sel"); return; }
+  const mark = (x, cls) => document.querySelector(`.tile[data-id="${CSS.escape(x)}"]`)?.classList.add(cls);
+  mark(id, "me");
+  c.deps.forEach(x => mark(x, "dep"));
+  data.cards.filter(x => x.deps.includes(id)).forEach(x => mark(x.id, "rdep"));
+}
+document.addEventListener("click", () => select(null));
+
+function tip(e, id) {
+  const c = data.cards.find(x => x.id === id);
+  const el = $("tip");
+  el.innerHTML = `<b>${esc(c.id)}</b> ${esc(c.title)}<div class="st">${STATES[c.state].icon} ${STATES[c.state].label} · 规模 ${esc(c.size || "未标")}
+    ${c.done_at ? ` · 完成于 ${fmtDate(c.done_at)}` : ""}</div>
+    ${c.deps.length ? `<div class="st">依赖：${c.deps.map(esc).join("、")}</div>` : ""}
+    ${c.status ? `<div class="st">${esc(c.status.slice(0, 220))}${c.status.length > 220 ? "…" : ""}</div>` : ""}`;
+  el.style.opacity = 1;
+  moveTip(e);
+}
+function moveTip(e) {
+  const el = $("tip"), w = el.offsetWidth, h = el.offsetHeight;
+  el.style.left = Math.min(innerWidth - w - 8, e.clientX + 14) + "px";
+  el.style.top = (e.clientY + h + 24 > innerHeight ? e.clientY - h - 12 : e.clientY + 16) + "px";
+}
+
+function burn(d) {
+  const svg = $("burn"), W = svg.clientWidth || 800, H = 240, L = 40, R = 16, T = 14, B = 26;
+  const pts = d.burnup;
+  const main = new Set(d.groups.filter(g => g.main).map(g => g.file));
+  const total = d.cards.filter(c => main.has(c.file)).reduce((s, c) => s + c.points, 0);
+  const ms = d.estimate.milestones || [];
+  const end = ms.length ? ms[ms.length - 1] : null;
+  const t0 = pts[0].t, t1 = Math.max(end ? end.p90 : d.now, d.now) + 3600 * 6;
+  const yMax = Math.max(total, pts[pts.length - 1].points) * 1.05;
+  const x = t => L + (t - t0) / (t1 - t0) * (W - L - R), y = v => H - B - v / yMax * (H - T - B);
+  const cur = pts[pts.length - 1].points;
+  let path = `M${x(pts[0].t)},${y(0)}`;
+  pts.slice(1).forEach(p => { path += ` H${x(p.t)} V${y(p.points)}`; });
+  path += ` H${x(d.now)}`;
+  const area = path + ` V${y(0)} H${x(pts[0].t)} Z`;
+  let ticks = "";
+  const days = Math.ceil((t1 - t0) / 86400), stepDays = Math.max(1, Math.ceil(days / 9));
+  const startDay = new Date(t0 * 1000); startDay.setHours(0, 0, 0, 0);
+  for (let t = startDay.getTime() / 1000 + 86400; t < t1; t += 86400 * stepDays)
+    ticks += `<line x1="${x(t)}" x2="${x(t)}" y1="${T}" y2="${H - B}"/><text x="${x(t)}" y="${H - 8}" text-anchor="middle">${fmtDay(t)}</text>`;
+  let yt = "";
+  const yStep = Math.max(10, Math.ceil(yMax / 5 / 10) * 10);
+  for (let v = 0; v <= yMax; v += yStep) yt += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${v}</text>`;
+  let proj = "", labels = "";
+  if (end) {
+    proj = `<polygon class="band" points="${x(d.now)},${y(cur)} ${x(end.p50)},${y(total)} ${x(end.p90)},${y(total)}"/>
+      <path class="proj" d="M${x(d.now)},${y(cur)} L${x(end.p50)},${y(total)}"/>`;
+    let acc = cur;
+    ms.forEach(m => {
+      if (!m.remaining) return;
+      acc += m.remaining_points;
+      const px = x(m.p50), py = y(acc);
+      labels += `<circle cx="${px}" cy="${py}" r="4" fill="var(--surface)" stroke="var(--text2)" stroke-width="2"/>
+        <text class="lbl" x="${px - 6}" y="${py - 8}" text-anchor="end">${m.file.replace(".md", "")}</text>`;
+    });
+  }
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.innerHTML = `<g class="grid axis">${yt}${ticks}</g>
+    <line class="scope" x1="${L}" x2="${W - R}" y1="${y(total)}" y2="${y(total)}"/>
+    <text class="lbl" x="${L + 4}" y="${y(total) - 5}">主线总量 ${total} 点</text>
+    ${proj}<path class="histarea" d="${area}"/><path class="hist" id="histline" d="${path}"/>
+    <line class="cross" id="cross" y1="${T}" y2="${H - B}" style="display:none"/>${labels}
+    <line x1="${x(d.now)}" x2="${x(d.now)}" y1="${T}" y2="${H - B}" stroke="var(--active)" stroke-width="1"/>
+    <text class="lbl" x="${x(d.now) + 4}" y="${T + 10}">现在</text>
+    <rect id="hit" x="${L}" y="${T}" width="${W - L - R}" height="${H - T - B}" fill="transparent"/>`;
+  if (!burn.drawn) {
+    const hl = $("histline"), len = hl.getTotalLength();
+    hl.style.strokeDasharray = len; hl.style.strokeDashoffset = len;
+    hl.getBoundingClientRect();
+    hl.style.transition = "stroke-dashoffset 1.6s ease-out"; hl.style.strokeDashoffset = 0;
+    burn.drawn = true;
+  }
+  const hit = $("hit");
+  hit.addEventListener("mousemove", e => {
+    const r = svg.getBoundingClientRect(), mx = (e.clientX - r.left) * W / r.width;
+    const t = t0 + (mx - L) / (W - L - R) * (t1 - t0);
+    const cross = $("cross"); cross.style.display = ""; cross.setAttribute("x1", mx); cross.setAttribute("x2", mx);
+    let p = pts[0]; pts.forEach(q => { if (q.t <= t) p = q; });
+    const el = $("tip");
+    el.innerHTML = t <= d.now ? `<b>${fmtDate(t)}</b><div class="st">累计完成 ${p.points} 点${p.id ? `，最近完成 ${esc(p.id)}` : ""}</div>`
+      : `<b>${fmtDate(t)}</b><div class="st">预计区间（虚线 = 中位估计，阴影 = 到保守估计）</div>`;
+    el.style.opacity = 1; moveTip(e);
+  });
+  hit.addEventListener("mouseleave", () => { $("cross").style.display = "none"; $("tip").style.opacity = 0; });
+  const e = d.estimate;
+  $("method").innerHTML = e.samples ? `估算方法：按已完成 ${e.samples} 张卡的实际节奏（两次完成之间的时间 ÷ 点数，含夜间、等决定和设计讨论的停顿），
+    对剩余主线卡随机抽样模拟 2000 次。「预计」是中位数，「保守」是九成把握。每点中位 ${Math.round(e.hours_per_point_median * 60)} 分钟、平均 ${Math.round(e.hours_per_point_mean * 60)} 分钟；
+    距上次完成 ${e.since_last_done_hours.toFixed(1)} 小时。没算进去的：后面里程碑的卡到期细化时可能变大、性能这类要迭代几轮的卡、等你验收和决定的时间；Lab 与增强包不计入。`
+    : "还没有带时间的完成记录，暂不能估算。";
+}
+
+function feed(d) {
+  const ul = $("feed"), seen = new Set([...ul.children].map(li => li.dataset.h));
+  ul.innerHTML = d.commits.map(c => `<li data-h="${c.hash}" style="${seen.has(c.hash) ? "animation:none" : ""}">
+    <time title="${fmtDate(+c.t)}">${ago(+c.t)}</time><span class="msg" title="${esc(c.subject)}">${esc(c.subject)}</span></li>`).join("");
+}
+
+function table(d) {
+  $("table").innerHTML = `<tr><th>卡</th><th>标题</th><th>状态</th><th>规模</th><th>依赖</th><th>完成时间</th></tr>` +
+    d.cards.map(c => `<tr><td>${esc(c.id)}</td><td>${esc(c.title)}</td><td>${STATES[c.state].label}</td><td>${esc(c.size)}</td>
+      <td>${c.deps.map(esc).join("、")}</td><td>${c.done_at ? fmtDate(c.done_at) : ""}</td></tr>`).join("");
+}
+
+async function tick() {
+  try {
+    const r = await fetch("/data", { cache: "no-store" });
+    const d = await r.json();
+    data = d;
+    $("title").textContent = `${d.repo} · 任务卡看板`;
+    document.title = `${d.repo} 看板`;
+    $("live").classList.remove("off");
+    $("livetext").textContent = `每 3 秒刷新 · ${new Date().toLocaleTimeString("zh-CN", { hour12: false })}`;
+    stats(d);
+    agentPanels(d);
+    $("banner").innerHTML = d.pause ? `<div class="banner"><span>⏸</span><span>${esc(d.pause.replace(/\*\*/g, ""))}</span></div>` : "";
+    changes(d);
+    groups(d);
+    burn(d);
+    feed(d);
+    Galaxy.update(d);
+    if (document.querySelector("details[open]")) table(d);
+    prev = d;
+  } catch (err) {
+    $("live").classList.add("off");
+    $("livetext").textContent = "连接断开，重试中";
+  }
+}
+
+const Galaxy = (() => {
+  const cv = $("gcanvas"), ctx = cv.getContext("2d");
+  const C = { done: "#199e70", partial: "#d95926", active: "#3987e5", ready: "#c3c2b7", waiting: "#4a4a45", paused: "#6d6c64" };
+  const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let W = 0, H = 0, dpr = 1, nodes = new Map(), edges = [], cols = [], stars = [], sparks = [], waves = [];
+  let hover = null, running = false, layoutKey = "", last = null, shownDone = 0, TOP = 330;
+  const isDone = n => n.c.state === "done" || n.c.state === "partial";
+  const rgba = (hex, a) => { const v = parseInt(hex.slice(1), 16); return `rgba(${v >> 16},${(v >> 8) & 255},${v & 255},${a})`; };
+
+  function resize() {
+    dpr = devicePixelRatio || 1; W = cv.clientWidth; H = cv.clientHeight;
+    cv.width = W * dpr; cv.height = H * dpr;
+    if (!stars.length) for (let i = 0; i < 260; i++)
+      stars.push({ x: Math.random(), y: Math.random(), s: Math.random() < .9 ? 1 : 2, a: .2 + Math.random() * .6, f: .5 + Math.random() * 2, p: Math.random() * 7 });
+  }
+
+  function layout(d) {
+    const panel = $("g-now").getBoundingClientRect();
+    TOP = Math.min(Math.max(330, panel.height ? panel.bottom + 70 : 0), H * 0.4);
+    const key = `${W}x${H}x${TOP}|` + d.cards.map(c => c.id + ":" + c.deps.join(",")).join("|");
+    const byId = Object.fromEntries(d.cards.map(c => [c.id, c]));
+    const top = TOP, bottom = 80, padX = 60, n = d.groups.length, colW = (W - 2 * padX) / n;
+    const depth = {};
+    const dep = id => {
+      if (depth[id] != null) return depth[id];
+      depth[id] = 0;
+      let m = 0;
+      for (const x of byId[id].deps) if (byId[x] && byId[x].file === byId[id].file) m = Math.max(m, dep(x) + 1);
+      return (depth[id] = m);
+    };
+    cols = d.groups.map((g, gi) => {
+      const ids = g.cards, maxD = Math.max(0, ...ids.map(dep));
+      ids.forEach((id, i) => {
+        const c = byId[id];
+        let nd = nodes.get(id);
+        if (!nd) {
+          nd = { id, x: W / 2, y: H / 2 + 40, born: performance.now() + (reduced ? 0 : gi * 110 + i * 10), seed: Math.random() * 7 };
+          nodes.set(id, nd);
+        }
+        nd.c = c; nd.gi = gi; nd.r = 2.6 + c.points * 1.5;
+        nd.tx = padX + colW * gi + colW * (maxD ? 0.14 + 0.72 * dep(id) / maxD : 0.5);
+        if (key !== layoutKey) nd.ty = top + (i + 0.5) / ids.length * (H - top - bottom);
+      });
+      const cards = ids.map(id => byId[id]);
+      return { label: g.label, x: padX + colW * (gi + .5), w: colW, total: cards.length,
+        done: cards.filter(c => c.state === "done" || c.state === "partial").length,
+        active: cards.some(c => c.state === "active") };
+    });
+    for (const id of [...nodes.keys()]) if (!byId[id]) nodes.delete(id);
+    edges = [];
+    d.cards.forEach(c => c.deps.forEach(x => { if (nodes.has(x)) edges.push({ a: nodes.get(x), b: nodes.get(c.id), seed: Math.random() }); }));
+    if (key !== layoutKey) { relax(top, bottom, colW); layoutKey = key; }
+  }
+
+  function relax(top, bottom, colW) {
+    const list = [...nodes.values()];
+    for (let it = 0; it < 220; it++) {
+      for (const e of edges) {
+        const k = e.a.gi === e.b.gi ? .03 : .006, dy = e.b.ty - e.a.ty;
+        e.a.ty += dy * k; e.b.ty -= dy * k;
+      }
+      for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) {
+        const a = list[i], b = list[j], dx = Math.abs(a.tx - b.tx);
+        if (dx > colW * .45) continue;
+        const dy = b.ty - a.ty, min = 26 - dx * .25;
+        if (Math.abs(dy) < min) { const push = (min - Math.abs(dy)) / 2 * (dy >= 0 ? 1 : -1) || .5; a.ty -= push; b.ty += push; }
+      }
+      for (const nd of list) nd.ty = Math.max(top, Math.min(H - bottom, nd.ty));
+    }
+    const byCol = {};
+    list.forEach(nd => (byCol[nd.gi] ||= []).push(nd));
+    for (const col of Object.values(byCol)) {
+      col.sort((a, b) => a.ty - b.ty);
+      const span = Math.min(H - top - bottom, col.length * 34);
+      const start = top + (H - top - bottom - span) / 2;
+      col.forEach((nd, i) => { nd.ty = start + (i + .5) / col.length * span + (Math.random() - .5) * 6; });
+    }
+  }
+
+  const bez = (a, b, u) => {
+    const mx = (a.x + b.x) / 2, v = 1 - u;
+    return [v * v * v * a.x + 3 * v * v * u * mx + 3 * v * u * u * mx + u * u * u * b.x,
+            v * v * v * a.y + 3 * v * v * u * a.y + 3 * v * u * u * b.y + u * u * u * b.y];
+  };
+
+  function glow(x, y, r, color, a) {
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, rgba(color, a)); g.addColorStop(1, rgba(color, 0));
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
+  }
+
+  function frame(now) {
+    if (!running) return;
+    const t = reduced ? 0 : now / 1000;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const bg = ctx.createRadialGradient(W * .55, H * .65, 0, W * .55, H * .65, Math.max(W, H) * .85);
+    bg.addColorStop(0, "#131a2b"); bg.addColorStop(.6, "#0b0d16"); bg.addColorStop(1, "#05060a");
+    ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+    for (const s of stars) { ctx.fillStyle = `rgba(220,230,255,${s.a * (.55 + .45 * Math.sin(t * s.f + s.p))})`; ctx.fillRect(s.x * W, s.y * H, s.s, s.s); }
+
+    ctx.globalCompositeOperation = "lighter";
+    for (const col of cols) {
+      const p = col.total ? col.done / col.total : 0, cy = (TOP + H - 80) / 2;
+      ctx.save(); ctx.translate(col.x, cy); ctx.scale(1, 2.4);
+      glow(0, 0, col.w * .55, C.done, .05 + .12 * p);
+      if (col.active) glow(0, 0, col.w * .45, C.active, .07 + .04 * Math.sin(t * 2));
+      ctx.restore();
+    }
+    ctx.globalCompositeOperation = "source-over";
+
+    ctx.textAlign = "center";
+    for (const col of cols) {
+      const y = TOP - 40, p = col.total ? col.done / col.total : 0;
+      ctx.strokeStyle = "rgba(255,255,255,.08)"; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(col.x, y - 6, 17, 0, 7); ctx.stroke();
+      if (p) {
+        ctx.strokeStyle = C.done; ctx.lineCap = "round";
+        ctx.beginPath(); ctx.arc(col.x, y - 6, 17, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * p); ctx.stroke();
+      }
+      ctx.fillStyle = col.active ? "#fff" : "#c3c2b7"; ctx.font = "600 11px -apple-system, sans-serif";
+      ctx.fillText(col.label, col.x, y - 2);
+      ctx.fillStyle = "#6d6c64"; ctx.font = "11px -apple-system, sans-serif";
+      ctx.fillText(`${col.done}/${col.total}`, col.x, y + 26);
+    }
+
+    const ready = [...nodes.values()].filter(n => now >= n.born);
+    for (const n of nodes.values()) {
+      if (now < n.born) continue;
+      n.x += (n.tx - n.x) * (reduced ? 1 : .06); n.y += (n.ty - n.y) * (reduced ? 1 : .06);
+    }
+    const linked = hover ? new Set([hover.id, ...hover.c.deps, ...edges.filter(e => e.a === hover).map(e => e.b.id)]) : null;
+    ctx.lineWidth = 1;
+    for (const e of edges) {
+      if (now < e.a.born || now < e.b.born) continue;
+      const hot = e.b.c.state === "active", lit = isDone(e.a) && isDone(e.b);
+      const on = linked && (e.a === hover || e.b === hover);
+      const color = on ? "#ffffff" : hot ? C.active : lit ? C.done : "#8f8e85";
+      ctx.strokeStyle = rgba(color, on ? .7 : linked ? .03 : hot ? .45 : lit ? .16 : .07);
+      const mx = (e.a.x + e.b.x) / 2;
+      ctx.beginPath(); ctx.moveTo(e.a.x, e.a.y); ctx.bezierCurveTo(mx, e.a.y, mx, e.b.y, e.b.x, e.b.y); ctx.stroke();
+      if (hot && !reduced) {
+        ctx.globalCompositeOperation = "lighter";
+        for (let k = 0; k < 3; k++) {
+          const u = (t * .32 + e.seed + k / 3) % 1, [px, py] = bez(e.a, e.b, u);
+          glow(px, py, 7, C.active, .9 * Math.sin(Math.PI * u));
+        }
+        ctx.globalCompositeOperation = "source-over";
+      }
+    }
+
+    for (const n of ready) {
+      const s = n.c.state, r = n.r, dim = linked && !linked.has(n.id) ? .25 : 1;
+      const age = Math.min(1, (now - n.born) / 600);
+      ctx.globalAlpha = dim * age;
+      if (s === "done" || s === "partial") {
+        ctx.globalCompositeOperation = "lighter";
+        glow(n.x, n.y, r * 4, C[s], .35 + .08 * Math.sin(t * 1.3 + n.seed));
+        ctx.globalCompositeOperation = "source-over";
+        ctx.fillStyle = C[s]; ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, 7); ctx.fill();
+        ctx.fillStyle = "rgba(255,255,255,.75)"; ctx.beginPath(); ctx.arc(n.x, n.y, r * .38, 0, 7); ctx.fill();
+      } else if (s === "active") {
+        ctx.globalCompositeOperation = "lighter";
+        glow(n.x, n.y, r * (7 + 1.5 * Math.sin(t * 3)), C.active, .55);
+        ctx.globalCompositeOperation = "source-over";
+        for (let k = 0; k < 3; k++) {
+          const ph = ((t * .55) + k / 3) % 1;
+          ctx.strokeStyle = rgba(C.active, (1 - ph) * .7); ctx.lineWidth = 1.5;
+          ctx.beginPath(); ctx.arc(n.x, n.y, r + ph * 46, 0, 7); ctx.stroke();
+        }
+        ctx.fillStyle = "#e8f1ff"; ctx.beginPath(); ctx.arc(n.x, n.y, r * 1.1, 0, 7); ctx.fill();
+      } else if (s === "ready") {
+        ctx.strokeStyle = rgba(C.ready, .65 + .3 * Math.sin(t * 2 + n.seed)); ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, 7); ctx.stroke();
+      } else if (s === "paused") {
+        ctx.setLineDash([3, 3]); ctx.lineDashOffset = -t * 4;
+        ctx.strokeStyle = C.paused; ctx.lineWidth = 1.2;
+        ctx.beginPath(); ctx.arc(n.x, n.y, r + 1, 0, 7); ctx.stroke(); ctx.setLineDash([]);
+        ctx.fillStyle = "#34342f"; ctx.beginPath(); ctx.arc(n.x, n.y, r * .6, 0, 7); ctx.fill();
+      } else {
+        ctx.fillStyle = C.waiting; ctx.beginPath(); ctx.arc(n.x, n.y, r * .75, 0, 7); ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      if (s === "active" || n === hover || (linked && linked.has(n.id))) {
+        ctx.textAlign = "left";
+        ctx.font = s === "active" ? "600 13px -apple-system, sans-serif" : "11px -apple-system, sans-serif";
+        ctx.fillStyle = s === "active" ? "#ffffff" : "#c3c2b7";
+        ctx.fillText(s === "active" ? `${n.id}  ${n.c.title}`.slice(0, 40) : n.id, n.x + r + 8, n.y + 4);
+      }
+    }
+
+    ctx.globalCompositeOperation = "lighter";
+    sparks = sparks.filter(p => p.life > 0);
+    for (const p of sparks) {
+      p.x += p.vx / 60; p.y += p.vy / 60; p.vx *= .97; p.vy *= .97; p.life -= 1 / 80;
+      glow(p.x, p.y, 5, p.color, Math.max(0, p.life));
+    }
+    waves = waves.filter(w => w.life > 0);
+    for (const w of waves) {
+      w.life -= 1 / 70; ctx.strokeStyle = rgba(w.color, w.life * .8); ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(w.x, w.y, (1 - w.life) * 120, 0, 7); ctx.stroke();
+    }
+    ctx.globalCompositeOperation = "source-over";
+    requestAnimationFrame(frame);
+  }
+
+  function hud(d) {
+    const total = d.cards.length, done = d.cards.filter(c => c.state === "done" || c.state === "partial").length;
+    $("g-title").textContent = `${d.repo} · 任务卡星图`;
+    animateNumber($("g-done"), done);
+    $("g-total").textContent = total;
+    $("g-bar").style.width = `${done / total * 100}%`;
+    const pg = d.progress;
+    $("g-pct").innerHTML = `总体 <b>${Math.round(done / total * 100)}%</b> · 主线 <b>${Math.round(pg.main_done / pg.main_cards * 100)}%</b>（按点数 ${Math.round(pg.main_done_points / pg.main_points * 100)}%，${pg.main_done_points}/${pg.main_points} 点）`;
+    const act = d.cards.filter(c => c.state === "active");
+    $("g-active").innerHTML = act.length ? `进行中 <b>${act.map(c => esc(c.id)).join("、")}</b>` : "";
+    $("g-pause").textContent = d.pause ? `⏸ ${d.pause.replace(/\*\*/g, "")}` : "";
+    const ms = d.estimate.milestones || [], af = act[0]?.file;
+    const cur = ms.find(m => m.file === af && m.remaining) || ms.find(m => m.remaining), end = ms[ms.length - 1];
+    $("g-eta").innerHTML = cur ? `${esc(cur.file.replace(".md", ""))} 预计 <b>${fmtDate(cur.p50)}</b>` : "";
+    $("g-eta2").textContent = end ? `主线 ${ms[0].file.replace(".md", "")}–${end.file.replace(".md", "")} 预计 ${fmtDate(end.p50)}，保守 ${fmtDate(end.p90)}` : "";
+  }
+
+  cv.addEventListener("mousemove", e => {
+    const r = cv.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+    let best = null, bd = 18;
+    for (const n of nodes.values()) { const dd = Math.hypot(n.x - mx, n.y - my) - n.r; if (dd < bd) { bd = dd; best = n; } }
+    hover = best;
+    cv.style.cursor = best ? "pointer" : "default";
+    if (best) tip(e, best.id); else $("tip").style.opacity = 0;
+  });
+  cv.addEventListener("mouseleave", () => { hover = null; $("tip").style.opacity = 0; });
+  addEventListener("resize", () => { if (running) { resize(); last && layout(last); } });
+
+  return {
+    update(d) { last = d; if (running) { layout(d); hud(d); } },
+    show(on) {
+      running = on;
+      $("galaxy").hidden = !on;
+      document.body.style.overflow = on ? "hidden" : "";
+      if (on) { resize(); if (last) { layout(last); hud(last); } requestAnimationFrame(frame); }
+    },
+    burst(id, state) {
+      const n = nodes.get(id);
+      if (!n || !running) return;
+      const color = C[state] || C.active;
+      for (let i = 0; i < 60; i++) {
+        const a = Math.random() * Math.PI * 2, v = 60 + Math.random() * 220;
+        sparks.push({ x: n.x, y: n.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: .8 + Math.random() * .6, color });
+      }
+      waves.push({ x: n.x, y: n.y, life: 1, color }, { x: n.x, y: n.y, life: .7, color: "#ffffff" });
+    },
+  };
+})();
+
+function setView(v) {
+  localStorage.setItem("board-view", v);
+  document.querySelectorAll("#views button").forEach(b => b.classList.toggle("on", b.dataset.v === v));
+  Galaxy.show(v === "galaxy");
+  if (v === "info" && data) burn(data);
+}
+document.querySelectorAll("#views button").forEach(b => b.addEventListener("click", () => setView(b.dataset.v)));
+addEventListener("hashchange", () => { if (location.hash === "#info" || location.hash === "#galaxy") setView(location.hash.slice(1)); });
+document.querySelector("details").addEventListener("toggle", () => data && table(data));
+legend();
+setView(location.hash === "#info" ? "info" : location.hash === "#galaxy" ? "galaxy" : localStorage.getItem("board-view") || "galaxy");
+tick();
+setInterval(tick, 3000);
+addEventListener("resize", () => data && burn(data));
+</script>
+</body>
+</html>
